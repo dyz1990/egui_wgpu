@@ -1,0 +1,5 @@
+**/target
+/.*.json
+/.vscode
+/media/*
+/egui_wgpu
