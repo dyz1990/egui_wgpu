@@ -1,3 +1,4 @@
+use egui::RichText;
 use egui_wgpu::EguiWgpu;
 use egui_wgpu::RenderTarget;
 use egui_winit::winit;
@@ -49,6 +50,8 @@ fn main() {
     surface.configure(&device, &surface_config);
     let pipeline = egui_wgpu::Pipeline::new(&device, surface_format, 1);
 
+    let mut name = String::new();
+    let mut age = 0;
     let mut egui_wgpu = EguiWgpu::new(&adapter, &device, &window);
     event_loop.run(move |event, _target, cf| {
         //
@@ -67,12 +70,25 @@ fn main() {
                 }
                 egui_wgpu.on_event(&event);
                 window.request_redraw();
+                *cf = winit::event_loop::ControlFlow::Poll;
             }
             winit::event::Event::RedrawRequested(_) => {
                 let mut quit = false;
                 let needs_repaint = egui_wgpu.run(&window, |egui_ctx| {
                     egui::SidePanel::left("my_side_panel").show(egui_ctx, |ui| {
-                        ui.heading("Hello World!");
+                        ui.label(RichText::new("Hello World! 129034").size(18.0));
+                        ui.label(RichText::new("Hello World! 1389475").size(55.0));
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new("Your Name:").size(18.0));
+                            ui.text_edit_singleline(&mut name);
+                        });
+                        ui.add(egui::Slider::new(&mut age, 0..=120).text("age"));
+                        if ui.button("Click each year").clicked() {
+                            age += 1;
+                        }
+                        ui.label(
+                            RichText::new(format!("Hello '{}', age {}", name, age)).size(36.0),
+                        );
                         if ui.button("Quit").clicked() {
                             quit = true;
                             println!("Quit Click");

@@ -1,19 +1,21 @@
 use ahash::AHashMap;
 use egui::ClippedMesh;
-use std::{
-    num::{NonZeroU32, NonZeroU64, NonZeroUsize},
-    rc::Rc,
-};
-use wgpu::{util::DeviceExt, Buffer, BufferBinding, BufferUsages, Device, RenderPass, TextureView};
+use std::num::{NonZeroU32, NonZeroU64};
+use wgpu::{util::DeviceExt, BindGroup, BufferBinding, BufferUsages, Device, Texture};
 
 use crate::{
     pipeline::{Pipeline, SizedBuffer, UniformBufferData},
     RenderTarget,
 };
 
+pub struct TextureBind {
+    bind: BindGroup,
+    texture: Texture,
+}
+
 pub struct Painter {
     sampler: wgpu::Sampler,
-    textures: AHashMap<egui::TextureId, wgpu::BindGroup>,
+    textures: AHashMap<egui::TextureId, TextureBind>,
     vertex_buffers: Vec<SizedBuffer>,
     index_buffers: Vec<SizedBuffer>,
     #[cfg(feature = "epi")]
@@ -49,6 +51,7 @@ impl Painter {
     ) {
         for (id, image_delta) in &textures_delta.set {
             self.set_texture(device, queue, pipeline, *id, image_delta);
+            println!("set_texture:{:?}", id);
         }
 
         self.paint_meshes(
@@ -87,13 +90,55 @@ impl Painter {
                     4,
                 )
             }
-            egui::ImageData::Alpha(image) => (
-                image.pixels.as_slice(),
-                wgpu::TextureFormat::R8Unorm,
-                (image.width(), image.height()),
-                1u32,
-            ),
+            egui::ImageData::Alpha(image) => {
+                // image::save_buffer(
+                //     "./font.png",
+                //     bytemuck::cast_slice(
+                //         image.srgba_pixels(1.0).collect::<Vec<Color32>>().as_slice(),
+                //     ),
+                //     image.width() as u32,
+                //     image.height() as u32,
+                //     image::ColorType::Rgba8,
+                // )
+                // .expect("OK");
+                //
+
+                (
+                    image.pixels.as_slice(),
+                    wgpu::TextureFormat::R8Unorm,
+                    (image.width(), image.height()),
+                    1u32,
+                )
+            }
         };
+        if let Some(pos) = delta.pos {
+            if let Some(tex) = self.textures.get(&tex_id) {
+                queue.write_texture(
+                    wgpu::ImageCopyTexture {
+                        texture: &tex.texture,
+                        mip_level: 0,
+                        origin: wgpu::Origin3d {
+                            x: pos[0] as u32,
+                            y: pos[1] as u32,
+                            z: 0,
+                        },
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    data,
+                    wgpu::ImageDataLayout {
+                        offset: 0,
+                        bytes_per_row: NonZeroU32::new(size.0 as u32),
+                        rows_per_image: NonZeroU32::new(size.1 as u32),
+                    },
+                    wgpu::Extent3d {
+                        width: size.0 as u32,
+                        height: size.1 as u32,
+                        depth_or_array_layers: 1,
+                    },
+                )
+            }
+            return;
+        }
 
         let tex = device.create_texture_with_data(
             queue,
@@ -143,10 +188,17 @@ impl Painter {
                 },
             ],
         });
-        self.textures.insert(tex_id, bind_group);
+        self.textures.insert(
+            tex_id,
+            TextureBind {
+                bind: bind_group,
+                texture: tex,
+            },
+        );
     }
 
     pub fn free_texture(&mut self, id: egui::TextureId) {
+        println!("free_texture:{:?}", id);
         self.textures.remove(&id);
     }
 
@@ -247,12 +299,14 @@ impl Painter {
                     rpass.set_scissor_rect(x, y, width, height);
                 }
                 if let Some(tex_bind) = self.textures.get(&mesh.texture_id) {
-                    rpass.set_bind_group(1, &tex_bind, &[]);
+                    rpass.set_bind_group(1, &tex_bind.bind, &[]);
                 } else {
+                    eprintln!("no texture with id:{:?}", mesh.texture_id);
                     continue;
                 }
 
                 let buffer = &self.vertex_buffers[i].buffer;
+
                 rpass.set_vertex_buffer(0, buffer.slice(..));
 
                 let buffer = &self.index_buffers[i].buffer;
@@ -266,6 +320,7 @@ impl Painter {
     }
 }
 
+#[inline(always)]
 fn update_buffer(
     device: &Device,
     queue: &wgpu::Queue,
@@ -273,6 +328,7 @@ fn update_buffer(
     data: &[u8],
     usage: wgpu::BufferUsages,
 ) {
+    // println!("size change={}", buffer.size != data.len());
     if buffer.size < data.len() {
         *buffer = create_buffer(device, data, usage);
     } else {
@@ -280,6 +336,7 @@ fn update_buffer(
     }
 }
 
+#[inline(always)]
 fn create_buffer(device: &Device, data: &[u8], usage: BufferUsages) -> SizedBuffer {
     let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: None,
@@ -305,5 +362,21 @@ fn update_buffer_at(
         update_buffer(device, queue, buffer, data, usage);
     } else {
         buffers.push(create_buffer(device, data, usage));
+    }
+}
+
+#[cfg(feature = "epi")]
+impl epi::NativeTexture for Painter {
+    type Texture = TextureBind;
+
+    fn register_native_texture(&mut self, native: Self::Texture) -> egui::TextureId {
+        let id = egui::TextureId::User(self.next_native_tex_id);
+        self.next_native_tex_id += 1;
+        self.textures.insert(id, native);
+        id
+    }
+
+    fn replace_native_texture(&mut self, id: egui::TextureId, replacing: Self::Texture) {
+        self.textures.insert(id, replacing);
     }
 }
