@@ -91,18 +91,6 @@ impl Painter {
                 )
             }
             egui::ImageData::Alpha(image) => {
-                // image::save_buffer(
-                //     "./font.png",
-                //     bytemuck::cast_slice(
-                //         image.srgba_pixels(1.0).collect::<Vec<Color32>>().as_slice(),
-                //     ),
-                //     image.width() as u32,
-                //     image.height() as u32,
-                //     image::ColorType::Rgba8,
-                // )
-                // .expect("OK");
-                //
-
                 (
                     image.pixels.as_slice(),
                     wgpu::TextureFormat::R8Unorm,
@@ -217,14 +205,17 @@ impl Painter {
         } else {
             wgpu::LoadOp::Load
         };
-        let physical_width = target.width;
-        let physical_height = target.height;
+        let physical_width = target.width as f32;
+        let physical_height = target.height as f32;
+        let width_point = physical_width/pixels_per_point;
+        let height_point = physical_height/pixels_per_point;
+
         let buffer = &pipeline.uniform_buffer.buffer;
         queue.write_buffer(
             buffer,
             0,
             bytemuck::bytes_of(&UniformBufferData {
-                screen_size: [physical_width as f32, physical_height as f32],
+                screen_size: [width_point, height_point as f32],
             }),
         );
 
@@ -287,10 +278,10 @@ impl Painter {
 
                 {
                     // Clip scissor rectangle to target size.
-                    let x = clip_min_x.min(physical_width);
-                    let y = clip_min_y.min(physical_height);
-                    let width = width.min(physical_width - x);
-                    let height = height.min(physical_height - y);
+                    let x = clip_min_x.min(physical_width as u32);
+                    let y = clip_min_y.min(physical_height as u32);
+                    let width = width.min(physical_width as u32 - x);
+                    let height = height.min(physical_height as u32 - y);
 
                     // Skip rendering with zero-sized clip areas.
                     if width == 0 || height == 0 {
